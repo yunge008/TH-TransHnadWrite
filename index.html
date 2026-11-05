@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>手写卡文案转换（泰语 / 越南语）</title>
+<style>
+  :root{--bg:#faf8f3;--card:#fff;--ink:#222;--mute:#6b6b6b;--line:#e3ded2;--acc:#2f6f5e;--warn:#b5532a}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 -apple-system,"PingFang SC","Noto Sans SC","Noto Sans Thai",sans-serif}
+  main{max-width:880px;margin:0 auto;padding:24px 16px 48px}
+  h1{font-size:20px;margin:0 0 4px}
+  p.sub{color:var(--mute);margin:0 0 18px;font-size:13px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+  label{font-weight:600;font-size:13px;display:block;margin-bottom:6px}
+  textarea{width:100%;min-height:150px;border:1px solid var(--line);border-radius:8px;padding:10px;font:16px/1.6 "Noto Sans Thai","Noto Sans",sans-serif;resize:vertical;background:#fffdf8}
+  textarea[readonly]{background:#f4f2ec}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
+  button{border:0;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer;background:var(--acc);color:#fff;font-size:14px}
+  button.sec{background:#e9e5da;color:var(--ink)}
+  .stat{font-size:13px;color:var(--mute)}
+  .stat b{color:var(--ink)}
+  .warn{color:var(--warn);font-size:13px;margin-top:8px;white-space:pre-wrap}
+  .ok{color:var(--acc);font-size:13px}
+  ol{margin:6px 0 0 18px;padding:0;font-size:13px;color:var(--mute)}
+</style>
+</head>
+<body>
+<main>
+  <h1>手写卡文案转换</h1>
+  <p class="sub">配合字体 ARTPHRO-Mix-v2.gfont 使用。泰语组合字转成预组合字形；越南语等统一为 NFC。其他语言原样保留，全部文案都可以先过一遍。</p>
+
+  <div class="card">
+    <label for="in">① 粘贴原文</label>
+    <textarea id="in" placeholder="粘贴任意语言的祝福语…"></textarea>
+    <div class="row">
+      <button id="go">转换</button>
+      <button class="sec" id="clr">清空</button>
+      <span class="stat" id="stat"></span>
+    </div>
+    <div class="warn" id="warn"></div>
+  </div>
+
+  <div class="card">
+    <label for="out">② 复制结果，粘到手写机软件</label>
+    <textarea id="out" readonly placeholder="转换结果。泰语部分在这里会显示成方框，属正常，只有手写机字体能正确显示。"></textarea>
+    <div class="row">
+      <button id="cp">复制结果</button>
+      <span class="ok" id="cpok"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <label>说明</label>
+    <ol>
+      <li>字体：ARTPHRO-Mix-v2.gfont（包含 v1 的全部字，英、西、俄、越、日文不转换也能直接用）。</li>
+      <li>泰语必须先转换，否则上下元音和声调会错位。</li>
+      <li>标红的"未转换片段"是表里没有的罕见组合，会按原样输出，仍可能错位，请截图发回补充。</li>
+      <li>转换后的泰语在网页、Word 里显示为方框或乱码，只能在手写机软件里使用，不要当作文案原稿保存。</li>
+    </ol>
+  </div>
+</main>
+<script>
+(function(){
+  // --- must match thaimap.py exactly ---
+  var BASES=[];for(var c=0xE01;c<=0xE2E;c++)BASES.push(c);
+  var UPPERS=[0,0xE31,0xE34,0xE35,0xE36,0xE37,0xE4D];
+  var TONES=[0,0xE48,0xE49,0xE4A,0xE4B];
+  var LOWERS=[0xE38,0xE39,0xE3A];
+  var VAR=[];
+  UPPERS.forEach(function(u){TONES.forEach(function(t){if(u||t)VAR.push([u,0,t,0]);});});
+  LOWERS.forEach(function(l){TONES.forEach(function(t){VAR.push([0,l,t,0]);});});
+  VAR.push([0xE47,0,0,0],[0,0,0,0xE4C],[0xE34,0,0,0xE4C],[0xE35,0,0,0xE4C],[0,0xE38,0,0xE4C]);
+  var VIDX={};VAR.forEach(function(v,i){VIDX[v.join(',')]=i;});
+  var UP={},LO={},TO={};
+  UPPERS.slice(1).concat([0xE47]).forEach(function(x){UP[x]=1;});
+  LOWERS.forEach(function(x){LO[x]=1;});
+  TONES.slice(1).forEach(function(x){TO[x]=1;});
+  var NONMARK={0xE32:1,0xE40:1,0xE41:1,0xE42:1,0xE43:1,0xE44:1,0xE45:1,0xE46:1,0xE2F:1,0xE30:1,0xE33:1,0xE4F:1};
+
+  function convert(text){
+    var s=text.normalize('NFC'),out=[],miss=[],n=0,i=0;
+    while(i<s.length){
+      var c=s.charCodeAt(i);
+      if(c>=0xE01&&c<=0xE2E){
+        var j=i+1,u=0,l=0,t=0,th=0,am=false,bad=false;
+        while(j<s.length){
+          var d=s.charCodeAt(j);
+          if(UP[d]&&!u)u=d;
+          else if(LO[d]&&!l)l=d;
+          else if(TO[d]&&!t)t=d;
+          else if(d===0xE4C&&!th)th=d;
+          else if(d===0xE33&&!am&&u===0){am=true;u=0xE4D;j++;break;}
+          else if(d>=0xE31&&d<=0xE4E&&!NONMARK[d]){bad=true;j++;continue;}
+          else break;
+          j++;
+        }
+        var key=[u,l,t,th].join(',');
+        if(key==='0,0,0,0') out.push(s[i]);
+        else if(VIDX.hasOwnProperty(key)&&!bad){
+          out.push(String.fromCharCode(0xE000+(c-0xE01)*64+VIDX[key]));n++;
+          if(am)out.push('า');
+        } else {miss.push(s.slice(i,j));out.push(s.slice(i,j));}
+        i=j;
+      } else {out.push(s[i]);i++;}
+    }
+    return {text:out.join(''),miss:miss,n:n,nfc:s!==text};
+  }
+  if(typeof module!=='undefined'){module.exports=convert;return;}
+
+  var $=function(id){return document.getElementById(id);};
+  function run(){
+    var r=convert($('in').value);
+    $('out').value=r.text;
+    $('stat').innerHTML='泰语组合字转换 <b>'+r.n+'</b> 处'+(r.nfc?'，已统一为 NFC（含越南语分解字符修正）':'');
+    $('warn').textContent=r.miss.length?('未转换片段（'+r.miss.length+'）：'+r.miss.join('  ')):'';
+    $('cpok').textContent='';
+  }
+  $('go').onclick=run;
+  $('in').addEventListener('input',run);
+  $('clr').onclick=function(){$('in').value='';run();};
+  $('cp').onclick=function(){
+    var v=$('out').value;
+    if(!v){$('cpok').textContent='没有内容';return;}
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(v).then(function(){$('cpok').textContent='已复制';},function(){fallback();});
+    } else fallback();
+    function fallback(){$('out').select();try{document.execCommand('copy');$('cpok').textContent='已复制';}catch(e){$('cpok').textContent='请手动全选复制';}}
+  };
+})();
+</script>
+</body>
+</html>
